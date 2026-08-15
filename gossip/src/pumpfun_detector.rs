@@ -281,8 +281,10 @@ pub fn decode_entries(shreds: impl IntoIterator<Item = solana_ledger::shred::Shr
 #[cfg(test)]
 mod tests {
     use {
-        super::*, solana_hash::Hash, solana_instruction::CompiledInstruction,
-        solana_message::Message, solana_transaction::Transaction,
+        super::*,
+        solana_hash::Hash,
+        solana_message::{compiled_instruction::CompiledInstruction, Message},
+        solana_transaction::Transaction,
     };
 
     fn pubkey(byte: u8) -> Pubkey {
