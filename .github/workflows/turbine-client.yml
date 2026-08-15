@@ -35,7 +35,9 @@ jobs:
 
       - name: Install build dependencies
         shell: bash
-        run: source .github/scripts/install-all-deps.sh Linux
+        run: |
+          source .github/scripts/install-all-deps.sh Linux
+          sudo apt-get install -y libudev-dev
 
       - name: Check Turbine client
         run: cargo check -p solana-gossip --bin solana-turbine-client
