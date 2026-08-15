@@ -1,0 +1,36 @@
+name: Turbine Client
+
+on:
+  push:
+    branches:
+      - Turbine-Client
+    paths:
+      - "gossip/src/turbine_client.rs"
+      - "gossip/Cargo.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/scripts/**"
+      - ".github/workflows/turbine-client.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        shell: bash
+        run: source .github/scripts/install-all-deps.sh Linux
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check Turbine client
+        run: cargo check -p solana-gossip --bin solana-turbine-client
