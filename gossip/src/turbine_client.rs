@@ -25,9 +25,6 @@ use {
     },
 };
 
-const DEFAULT_GOSSIP_PORT: u16 = 8_001;
-const DEFAULT_TVU_PORT: u16 = 8_002;
-const DEFAULT_TPU_PORT: u16 = 8_003;
 const SHRED_BUFFER_SIZE: usize = 2_048;
 const SEEN_SLOT_WINDOW: u64 = 8;
 
