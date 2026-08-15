@@ -10,6 +10,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - ".gitmodules"
       - ".github/scripts/**"
       - ".github/workflows/turbine-client.yml"
   workflow_dispatch:
@@ -23,15 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        shell: bash
-        run: source .github/scripts/install-all-deps.sh Linux
-
       - name: Install rustfmt
         run: rustup component add rustfmt
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Initialize required Jito submodules
+        run: git submodule update --init --depth=1 anchor jito-programs jito-protos/protos
+
+      - name: Install build dependencies
+        shell: bash
+        run: source .github/scripts/install-all-deps.sh Linux
 
       - name: Check Turbine client
         run: cargo check -p solana-gossip --bin solana-turbine-client
