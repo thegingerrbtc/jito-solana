@@ -1,120 +1,112 @@
-# Stateless Turbine Client
+# Stateless tracked-buy Turbine client
 
-`solana-turbine-client` is a receive-only Solana Gossip/Turbine client. It joins Gossip, advertises a TVU endpoint, receives Turbine UDP datagrams, parses canonical shreds, deduplicates them in a bounded in-memory window, and emits shred metadata to stdout.
+`solana-turbine-client` is a receive-only Solana Gossip/Turbine client for early, top-level Pump.fun buy detection. It joins Gossip, advertises a TVU endpoint, reconstructs entries entirely in bounded RAM, and sends a compact event only when a Pump.fun `buy` targets a mint in the runtime watchlist.
 
-It does **not** start or maintain validator state.
-
-## Runtime architecture
+## Hot path
 
 ```text
-identity keypair
-      |
-      v
-Gossip / CRDS --------------------+
-  |                               |
-  | advertise Gossip + TVU + TPU  |
-  | refresh ContactInfo wallclock |
-  v                               |
-Turbine peers                     |
-  |                               |
-  v                               |
-TVU UDP socket <------------------+
-  |
-  v
-Shred::new_from_serialized_shred
-  |
-  v
-8-slot in-memory ShredId dedupe
-  |
-  v
-TSV stdout
+TVU UDP
+  -> canonical legacy or Merkle shred decode
+  -> 8-slot ShredId dedupe
+  -> bounded (slot, FEC set) RAM accumulator
+  -> Merkle recovery, with legacy Reed-Solomon fallback
+  -> consecutive data-shred block / Entry decode
+  -> VersionedTransaction top-level instructions
+  -> Pump.fun program + BUY discriminator
+  -> resolve classic buy accounts from static message keys
+  -> in-memory mint watchlist
+  -> nonblocking Unix datagram send
 ```
 
-A TPU UDP socket is advertised and drained so the ContactInfo record is not classified as a spy by this Jito/Solana codebase. No BankingStage or transaction execution is attached to it.
+There is no per-shred stdout output. Startup and exceptional diagnostics go to stderr through the logger. A missing, full, or disconnected bot socket never blocks the receive loop; that event is dropped.
 
-## Deliberately absent
+The client deliberately does **not** instantiate Blockstore, RocksDB, AccountsDB, BankForks, ReplayStage, BankingStage, an SVM, RPC, Redis, persistence, or a network relay. `GossipService` is started with `bank_forks = None`. The advertised TPU UDP socket is only drained so this fork does not classify the contact record as a spy.
 
-The binary does not instantiate:
+## Runtime watchlist control
 
-- Blockstore / RocksDB ledger persistence
-- AccountsDB
-- BankForks
-- ReplayStage
-- BankingStage
-- PoH
-- voting or VoteService
-- snapshots or snapshot download
-- RPC serving
-- transaction status/history storage
-- ledger cleanup
+The client owns `/tmp/turbine-control.sock` by default. Send one UTF-8 command per Unix datagram:
 
-`GossipService` is started with `bank_forks = None`.
+```text
+ADD <mint>
+REMOVE <mint>
+REPLACE <mint> <mint> ...
+REPLACE_WATCHLIST <mint>,<mint>,...
+```
 
-## Build
+`REPLACE` with no mints clears the watchlist. Commands are case-insensitive; Pubkeys are validated before a write. Each update takes one short write lock. The hot path takes a read lock only after a transaction has already matched the Pump.fun program and buy discriminator. A stale filesystem entry is removed only when it is actually a Unix socket; the client refuses to overwrite a regular file.
 
-This fork is an older Jito monorepo and its Cargo workspace still has build-time path dependencies on Jito/Anchor components even though the Turbine client does not run them. Initialize only the required submodules:
+Use `--control-socket PATH` to select another location.
+
+## Bot event socket and wire format
+
+The colocated bot owns and binds `/tmp/pumpfun.sock`, preserving the old hook's destination and buy tag (`0`). The client uses an unbound, nonblocking Unix datagram socket and `send_to()` for each tracked event. Use `--event-socket PATH` to override the destination.
+
+The old hook mixed two serializers and supplied an all-zero placeholder signature. This client emits a deterministic, versioned little-endian payload containing the real first signature from the decoded `VersionedTransaction`:
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 4 | magic ASCII `PFB1` |
+| 4 | 1 | legacy-compatible buy tag `0` |
+| 5 | 8 | observation Unix timestamp, nanoseconds |
+| 13 | 8 | slot |
+| 21 | 64 | transaction signature |
+| 85 | 32 | mint |
+| 117 | 32 | bonding curve |
+| 149 | 32 | associated bonding curve |
+| 181 | 32 | buyer/user |
+| 213 | 8 | token amount from buy instruction data |
+| 221 | 8 | max SOL cost from buy instruction data |
+| 229 | 32 | recent blockhash |
+| 261 | 2 | instruction-data length |
+| 263 | variable | complete Pump.fun instruction data |
+
+One event is one datagram. There is no framing across datagrams and no acknowledgement in the latency-sensitive path.
+
+## Bounds
+
+- shred and transaction-signature dedupe: 8 slots
+- FEC accumulator: 8 slots and at most 256 FEC sets total
+- individual FEC set: at most 128 shreds
+- observed shreds: at most 8192 per slot
+- decoded transaction signatures: at most 65,536 per slot
+- entry assembly: 8 slots and at most 4096 data shreds per slot
+- runtime watchlist: at most 65,536 mints
+
+When a bound is exceeded, old state is evicted or the oversized incomplete slot assembly is dropped. No state is persisted.
+
+## Build and test
+
+This historical Jito workspace retains build-time path dependencies even though the process does not run validator state. Initialize the required submodules:
 
 ```bash
 git checkout Turbine-Client
 git submodule update --init --depth=1 anchor jito-programs jito-protos/protos
 ```
 
-On Ubuntu/Debian, the workspace build currently needs the normal Jito build dependencies plus `libudev-dev`:
+On Ubuntu/Debian, install the standard Jito build dependencies and `libudev-dev`, then run:
 
 ```bash
-source .github/scripts/install-all-deps.sh Linux
-sudo apt-get install -y libudev-dev
-```
-
-Build the client:
-
-```bash
-cargo build --release -p solana-gossip --bin solana-turbine-client
-```
-
-The branch CI also runs:
-
-```bash
+cargo fmt --all -- --check
 cargo check -p solana-gossip --bin solana-turbine-client
+cargo test -p solana-gossip --bin solana-turbine-client
+cargo build --release -p solana-gossip --bin solana-turbine-client
 ```
 
 ## Run
 
-At minimum provide an identity keypair and a reachable Gossip entrypoint:
-
 ```bash
 ./target/release/solana-turbine-client \
   --identity /path/to/identity.json \
-  --entrypoint HOST:PORT
+  --entrypoint HOST:PORT \
+  --event-socket /tmp/pumpfun.sock \
+  --control-socket /tmp/turbine-control.sock
 ```
 
-Defaults:
+Defaults are `0.0.0.0`, Gossip UDP/TCP `8001`, TVU UDP `8002`, TPU discard UDP `8003`, `/tmp/pumpfun.sock`, and `/tmp/turbine-control.sock`. Public IP and shred version are inferred from the entrypoint unless explicitly supplied.
 
-- bind address: `0.0.0.0`
-- Gossip: UDP/TCP `8001`
-- TVU: UDP `8002`
-- TPU discard socket: UDP `8003`
+## Known limitations
 
-The public IP and cluster shred version are queried from the entrypoint when they are not supplied explicitly. They can be overridden with `--public-address` and `--shred-version`.
-
-For Turbine delivery, the advertised public TVU address must actually reach the process. NAT/firewall rules therefore need to forward the selected TVU UDP port. The Gossip UDP/TCP port must also be reachable for normal cluster participation.
-
-## Output
-
-stdout is tab-separated:
-
-```text
-wallclock_ms    source    slot    index    type    fec_set_index
-```
-
-Each line corresponds to a newly observed, successfully parsed shred. Duplicate `ShredId`s are suppressed within an eight-slot in-memory window.
-
-Startup/network diagnostics are written to stderr so stdout can be piped to another process.
-
-## Current boundary
-
-This first client proves the network/control-plane boundary: Gossip participation plus direct Turbine shred receipt with no ledger or bank state.
-
-It currently parses and exposes shred metadata. It does not yet reconstruct missing data shreds from coding shreds, reconstruct entries, decode transactions, retransmit Turbine shreds, or perform repair.
-
-The runtime is stateless, but the **build graph is not yet fully lightweight** because the historical `solana-gossip` crate has normal dependencies on validator-era runtime/client/ledger crates. Removing those build-time dependencies is a separate crate/feature-gating refactor and is not required for the process to run without validator storage.
+- Turbine is stake-weighted. A zero-stake identity can join Gossip correctly yet receive sparse or no Turbine delivery; this client does not add repair or a relay to compensate.
+- Detection covers direct, top-level calls to the classic Pump.fun `buy` discriminator and account layout only. A Pump invocation that exists solely as a CPI is not present in the transaction's top-level compiled instructions and requires execution-derived data, which this client intentionally does not produce.
+- A v0 instruction whose Pump program or required buy accounts are supplied only through address lookup tables is skipped. `VersionedTransaction` carries lookup descriptors but not the loaded addresses, and resolving them would require an external account/ALT source forbidden by this design.
+- The client can decode a completed data block only after every data shred in that block is present or recoverable. Joining in the middle of a slot can therefore miss that slot's earlier blocks.

@@ -6,6 +6,8 @@ on:
       - Turbine-Client
     paths:
       - "gossip/src/turbine_client.rs"
+      - "gossip/src/pumpfun_detector.rs"
+      - "gossip/TURBINE_CLIENT.md"
       - "gossip/Cargo.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -41,3 +43,6 @@ jobs:
 
       - name: Check Turbine client
         run: cargo check -p solana-gossip --bin solana-turbine-client
+
+      - name: Test Turbine client
+        run: cargo test -p solana-gossip --bin solana-turbine-client
