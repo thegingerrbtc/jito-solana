@@ -16,6 +16,10 @@ targets = ["x86_64-unknown-linux-gnu"]
 name = "solana-gossip"
 path = "src/main.rs"
 
+[[bin]]
+name = "solana-turbine-client"
+path = "src/turbine_client.rs"
+
 [features]
 frozen-abi = [
     "dep:solana-frozen-abi",
@@ -38,6 +42,7 @@ bincode = { workspace = true }
 bv = { workspace = true, features = ["serde"] }
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }
+ctrlc = { workspace = true }
 flate2 = { workspace = true }
 indexmap = { workspace = true, features = ["rayon"] }
 itertools = { workspace = true }
