@@ -8,13 +8,14 @@ use {
     solana_keypair::{read_keypair_file, Keypair},
     solana_ledger::shred::{Shred, ShredId},
     solana_net_utils::{get_cluster_shred_version, get_public_ip_addr, parse_host_port},
+    solana_packet::PACKET_DATA_SIZE,
     solana_signer::Signer,
     solana_streamer::socket::SocketAddrSpace,
     solana_time_utils::timestamp,
     std::{
         collections::{BTreeMap, HashSet},
         error::Error,
-        io,
+        io::{self, BufWriter, Write},
         net::{IpAddr, SocketAddr, TcpListener, UdpSocket},
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -25,7 +26,6 @@ use {
     },
 };
 
-const SHRED_BUFFER_SIZE: usize = 2_048;
 const SEEN_SLOT_WINDOW: u64 = 8;
 
 fn io_error(message: impl Into<String>) -> io::Error {
@@ -55,7 +55,7 @@ fn spawn_tpu_drain(socket: UdpSocket, exit: Arc<AtomicBool>) -> thread::JoinHand
         .name("turbine-tpu-drain".to_string())
         .spawn(move || {
             let _ = socket.set_read_timeout(Some(Duration::from_millis(250)));
-            let mut buffer = [0u8; SHRED_BUFFER_SIZE];
+            let mut buffer = [0u8; PACKET_DATA_SIZE];
             while !exit.load(Ordering::Relaxed) {
                 match socket.recv_from(&mut buffer) {
                     Ok(_) => {}
@@ -223,9 +223,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         tvu_addr,
         tpu_addr,
     );
-    println!("wallclock_ms\tsource\tslot\tindex\ttype\tfec_set_index");
 
-    let mut buffer = [0u8; SHRED_BUFFER_SIZE];
+    let stdout = io::stdout();
+    let mut output = BufWriter::new(stdout.lock());
+    writeln!(
+        output,
+        "wallclock_ms\tsource\tslot\tindex\ttype\tfec_set_index"
+    )?;
+    output.flush()?;
+
+    let mut buffer = [0u8; PACKET_DATA_SIZE];
     let mut seen: BTreeMap<u64, HashSet<ShredId>> = BTreeMap::new();
 
     while !exit.load(Ordering::Relaxed) {
@@ -258,7 +265,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let floor = slot.saturating_sub(SEEN_SLOT_WINDOW);
         seen.retain(|seen_slot, _| *seen_slot >= floor);
 
-        println!(
+        writeln!(
+            output,
             "{}\t{}\t{}\t{}\t{:?}\t{}",
             timestamp(),
             source,
@@ -266,9 +274,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             id.index(),
             id.shred_type(),
             shred.fec_set_index(),
-        );
+        )?;
     }
 
+    output.flush()?;
     exit.store(true, Ordering::Relaxed);
     let _ = tpu_drain.join();
     gossip_service
