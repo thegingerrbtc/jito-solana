@@ -27,6 +27,9 @@ jobs:
         shell: bash
         run: source .github/scripts/install-all-deps.sh Linux
 
+      - name: Install rustfmt
+        run: rustup component add rustfmt
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
