@@ -105,17 +105,10 @@ fn test_multi_fec_block_coding(is_last_in_slot: bool) {
             .filter_map(|(i, b)| if i % 2 != 0 { Some(b.clone()) } else { None })
             .collect();
 
-        let mut shred_recovery_context = new_shred_recovery_context(&shred_info);
-        let mut recovered_shreds = Vec::new();
-        let mut recovered_data_shreds = Vec::new();
-        shred_recovery_context
-            .recover(
-                shred_info.clone(),
-                &mut recovered_shreds,
-                &mut recovered_data_shreds,
-            )
-            .unwrap();
-        let recovered_data = recovered_data_shreds.into_iter();
+        let recovered =
+            Shred::recover_merkle_shreds(shred_info.clone(), &reed_solomon_cache).unwrap();
+        assert_eq!(recovered.len(), DATA_SHREDS_PER_FEC_BLOCK);
+        let recovered_data = recovered.into_iter().filter(Shred::is_data);
 
         for (i, recovered_shred) in recovered_data.enumerate() {
             let index = shred_start_index + (i * 2);

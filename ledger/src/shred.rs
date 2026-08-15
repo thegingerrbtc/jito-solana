@@ -448,6 +448,27 @@ impl Shred {
         })
     }
 
+    /// Reconstructs missing Merkle shreds from one erasure batch without
+    /// requiring Blockstore, Bank, or any validator runtime state.
+    ///
+    /// The returned vector contains only shreds that were missing from the
+    /// supplied batch and were recovered by Reed-Solomon reconstruction.
+    pub fn recover_merkle_shreds<T>(
+        shreds: T,
+        reed_solomon_cache: &ReedSolomonCache,
+    ) -> Result<Vec<Self>, Error>
+    where
+        T: IntoIterator<Item = Self>,
+    {
+        let shreds = shreds
+            .into_iter()
+            .map(merkle::Shred::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        merkle::recover(shreds, reed_solomon_cache)?
+            .map(|shred| shred.map(Self::from))
+            .collect()
+    }
+
     /// Unique identifier for each shred.
     pub fn id(&self) -> ShredId {
         ShredId(self.slot(), self.index(), self.shred_type())
