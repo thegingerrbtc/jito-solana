@@ -162,13 +162,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let gossip_socket = bind_udp(bind_ip, gossip_port, "gossip")?;
-    let gossip_echo_listener = TcpListener::bind(SocketAddr::new(bind_ip, gossip_port)).map_err(
-        |err| {
+    let gossip_echo_listener =
+        TcpListener::bind(SocketAddr::new(bind_ip, gossip_port)).map_err(|err| {
             io_error(format!(
                 "failed to bind gossip IP-echo TCP socket on {bind_ip}:{gossip_port}: {err}"
             ))
-        },
-    )?;
+        })?;
     let tvu_socket = bind_udp(bind_ip, tvu_port, "TVU")?;
     let tpu_socket = bind_udp(bind_ip, tpu_port, "TPU")?;
 
