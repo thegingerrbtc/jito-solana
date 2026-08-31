@@ -291,6 +291,23 @@ impl TransactionSender {
             .try_send(TransactionBatch::new(wire_transactions))
             .map_err(ClientError::TrySendError)
     }
+
+    /// Enqueue one transaction batch and return a receipt that completes only
+    /// after every selected leader worker has either written the batch to its
+    /// QUIC stream or reported a delivery failure. This exposes the real wire
+    /// boundary to latency-sensitive callers instead of acknowledging merely
+    /// that an internal queue accepted the batch.
+    pub fn try_send_transactions_tracked<T>(
+        &self,
+        wire_transactions: Vec<T>,
+    ) -> Result<crate::transaction_batch::TransactionBatchReceipt, ClientError>
+    where
+        T: AsRef<[u8]> + Send + 'static,
+    {
+        let (batch, receipt) = TransactionBatch::new_tracked(wire_transactions);
+        self.0.try_send(batch).map_err(ClientError::TrySendError)?;
+        Ok(receipt)
+    }
 }
 
 impl Client {

@@ -346,10 +346,12 @@ impl WorkersBroadcaster for NonblockingBroadcaster {
         leaders: &[SocketAddr],
         transaction_batch: TransactionBatch,
     ) -> Result<(), ConnectionWorkersSchedulerError> {
+        transaction_batch.prepare_fanout(leaders.len());
         for new_leader in leaders {
             let send_res =
                 workers.try_send_transactions_to_address(new_leader, transaction_batch.clone());
             if let Err(err) = send_res {
+                transaction_batch.report_worker_result(false);
                 debug!("Failed to send transactions to {new_leader:?}, worker send error: {err}.");
                 if err == WorkersCacheError::ReceiverDropped {
                     // Remove the worker from the cache if the peer has disconnected.

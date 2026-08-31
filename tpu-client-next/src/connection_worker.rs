@@ -274,15 +274,19 @@ impl ConnectionWorker {
             && now.saturating_sub(transactions.timestamp()) > MAX_PROCESSING_AGE_MS
         {
             debug!("Drop outdated transaction batch for peer: {}", self.peer);
+            transactions.report_worker_result(false);
             return;
         }
 
         let mut measure_send = Measure::start("send transaction batch");
+        let tracked_batch = transactions.clone();
+        let mut successful = true;
         for data in transactions.into_iter() {
             // Check connection health before each send
             if connection.close_reason().is_some() {
                 debug!("Connection closed during transaction batch sending");
                 self.connection = ConnectionState::Retry(1);
+                successful = false;
                 break;
             }
 
@@ -295,6 +299,7 @@ impl ConnectionWorker {
                 );
                 record_error(error, &self.send_txs_stats);
                 self.connection = ConnectionState::Retry(1);
+                successful = false;
                 // Exit early since connection is likely broken
                 break;
             } else {
@@ -310,6 +315,7 @@ impl ConnectionWorker {
                     .fetch_add(1, Ordering::Relaxed);
             }
         }
+        tracked_batch.report_worker_result(successful);
         measure_send.stop();
         debug!(
             "Time to send transactions batch to {}: {} us",
