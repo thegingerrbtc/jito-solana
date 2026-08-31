@@ -76,6 +76,10 @@ impl LeaderUpdateReceiver {
         };
         extract_send_leaders(&leaders, lookahead_leaders)
     }
+
+    pub async fn changed(&mut self) -> Result<(), watch::error::RecvError> {
+        self.receiver.changed().await
+    }
 }
 
 /// [`NodesTpuInfo`] holds the TPU addresses of the nodes scheduled to be leaders for upcoming

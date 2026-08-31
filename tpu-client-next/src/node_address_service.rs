@@ -170,6 +170,13 @@ impl LeaderUpdater for NodeAddressService {
         self.leaders_receiver.leaders(lookahead_leaders)
     }
 
+    async fn leaders_changed(&mut self) -> Result<(), crate::leader_updater::LeaderUpdaterError> {
+        self.leaders_receiver
+            .changed()
+            .await
+            .map_err(|_| crate::leader_updater::LeaderUpdaterError)
+    }
+
     async fn stop(&mut self) {
         if let Err(e) = self.shutdown().await {
             error!("Failed to shutdown NodeAddressService: {e}");

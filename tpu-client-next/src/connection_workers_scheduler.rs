@@ -242,13 +242,25 @@ impl ConnectionWorkersScheduler {
         let mut identity_updater_is_active = true;
 
         loop {
-            let transaction_batch: TransactionBatch = tokio::select! {
+            enum SchedulerEvent {
+                Transactions(TransactionBatch),
+                LeadersChanged,
+            }
+
+            let event = tokio::select! {
                 recv_res = transaction_receiver.recv() => match recv_res {
-                    Some(txs) => txs,
+                    Some(txs) => SchedulerEvent::Transactions(txs),
                     None => {
                         debug!("End of `transaction_receiver`: shutting down.");
                         break;
                     }
+                },
+                res = leader_updater.leaders_changed() => {
+                    if res.is_err() {
+                        last_error = Some(ConnectionWorkersSchedulerError::LeaderReceiverDropped);
+                        break;
+                    }
+                    SchedulerEvent::LeadersChanged
                 },
                 res = update_identity_receiver.changed(), if identity_updater_is_active => {
                     let Ok(()) = res else {
@@ -290,6 +302,13 @@ impl ConnectionWorkersScheduler {
                     shutdown_worker(evicted_worker);
                 }
             }
+
+            let SchedulerEvent::Transactions(transaction_batch) = event else {
+                // The leader window changed. Connections to the current send
+                // set and the lookahead set are now opening in the background;
+                // no transaction queue slot or worker queue slot was consumed.
+                continue;
+            };
 
             if let Err(error) = broadcaster
                 .send_to_workers(&mut workers, &send_leaders, transaction_batch)

@@ -6,7 +6,7 @@
 
 use {
     async_trait::async_trait,
-    std::{fmt, net::SocketAddr},
+    std::{fmt, future, net::SocketAddr},
     thiserror::Error,
 };
 
@@ -24,6 +24,14 @@ pub trait LeaderUpdater: Send {
     /// only one estimated leader, there is a risk of losing all the transactions,
     /// depending on the forwarding policy.
     fn next_leaders(&mut self, lookahead_leaders: usize) -> Vec<SocketAddr>;
+
+    /// Wait until the leader-address view changes. Schedulers use this to
+    /// establish future-leader connections before a transaction arrives.
+    /// Implementations without a push source may retain the default pending
+    /// future and continue to refresh only when transaction batches arrive.
+    async fn leaders_changed(&mut self) -> Result<(), LeaderUpdaterError> {
+        future::pending().await
+    }
 
     /// Stop [`LeaderUpdater`] and releases all associated resources.
     async fn stop(&mut self);
